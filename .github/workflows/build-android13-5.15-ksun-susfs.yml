@@ -1,0 +1,46 @@
+name: Build A13-5.15 KSUN+SUSFS (AnyKernel3)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential bc bison flex libssl-dev \
+            libncurses5-dev git wget curl python3 unzip zip ccache
+
+      - name: Build android13-5.15 KSUN+SUSFS
+        env:
+          TARGET: gki-android13-5.15
+          FLAVOR: ksun-susfs
+        run: |
+          chmod +x build.sh || true
+          bash build.sh "$TARGET" "$FLAVOR"
+
+      - name: Package AnyKernel3 zip
+        run: |
+          # clone AnyKernel3 template
+          git clone https://github.com/osm0sis/AnyKernel3.git anykernel
+          cd anykernel
+          # chỉnh tên thiết bị nếu muốn
+          sed -i 's|^device.name1=.*|device.name1=tapas|' anykernel.sh || true
+          sed -i 's|^device.name2=.*|device.name2=topaz|' anykernel.sh || true
+          sed -i 's|^block=.*|block=auto|' anykernel.sh || true
+          # copy boot.img vừa build vào AnyKernel3
+          find ../out -type f -name "*.img" -exec cp {} ./boot.img \; -quit
+          # đóng gói zip
+          zip -r9 ../AnyKernel3-android13-5.15-ksun-susfs.zip . -x .git\* .github\* README.md
+          cd ..
+
+      - name: Upload AnyKernel3 zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: AnyKernel3-android13-5.15-ksun-susfs
+          path: AnyKernel3-android13-5.15-ksun-susfs.zip
