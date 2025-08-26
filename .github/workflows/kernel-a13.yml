@@ -64,3 +64,4 @@ jobs:
       with:
         name: wildkernel-redminote12-5.15.78-ksun-susfs
         path: wildkernel-redminote12-5.15.78-ksun-susfs.zip
+        compression-level: 0
