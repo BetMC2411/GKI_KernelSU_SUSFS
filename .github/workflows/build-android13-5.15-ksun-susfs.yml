@@ -57,7 +57,7 @@ jobs:
           export KBUILD_BUILD_HOST=actions
 
           # defconfig cho Redmi Note 12 (tapas). Nếu repo của bạn có tên khác, đổi tại đây.
-          make O=out vendor/tapas_defconfig
+          make O=out gki_defconfig
           make -j"$(nproc)" O=out
 
       - name: Pack AnyKernel3 (flashable zip)
