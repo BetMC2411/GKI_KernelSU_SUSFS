@@ -1,4 +1,4 @@
-name: Build Redmi Note 12 A13-5.15.78 (KSUN+SUSFS)
+name: Build Redmi Note 12 A13 - 5.15.78 (KSUN+SUSFS, AnyKernel3)
 
 on:
   workflow_dispatch:
@@ -8,46 +8,88 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-      - name: Checkout
+      - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: Set up environment
+      - name: Install deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y git wget curl build-essential bc bison flex libssl-dev \
-              libncurses5-dev libncursesw5-dev python3 python3-pip ccache zip unzip
+          sudo apt-get install -y bc bison build-essential ccache curl flex git \
+            libncurses5-dev libncursesw5-dev libssl-dev python3 python3-pip \
+            unzip zip wget
 
-      - name: Download Proton Clang
+      - name: Download ZyC Clang
         run: |
           mkdir clang
-          wget -q https://github.com/kdrag0n/proton-clang/archive/refs/tags/20230717.tar.gz -O clang.tar.gz
+          wget -q https://github.com/ZyCromerZ/Clang/releases/download/18.0.0-20230806-release/Clang-18.0.0-20230806.tar.gz -O clang.tar.gz
           tar -C clang --strip-components=1 -xzf clang.tar.gz
 
-      - name: Build kernel
+      # Nếu repo WildKernels fork của bạn đã tích hợp KSUN+SUSFS sẵn thì bước này sẽ bỏ qua.
+      # Nếu cần, bạn có thể giữ lại để đảm bảo có KSU + SUSFS (không lỗi cũng không hại).
+      - name: Ensure KernelSU + SUSFS (best-effort)
+        run: |
+          set -e
+          # KernelSU
+          if [ ! -d kernel/ksu ]; then
+            git clone https://github.com/tiann/KernelSU.git -b main KernelSU_src
+            mkdir -p kernel/ksu
+            cp -r KernelSU_src/kernel/* kernel/
+          fi
+          # SUSFS (chỉ apply nếu patch khớp)
+          if [ -f SUSFS.patch ]; then
+            patch -p1 < SUSFS.patch || true
+          else
+            git clone https://github.com/chenxiaolong/susfs.git SUSFS_src || true
+            if [ -f SUSFS_src/kernel.patch ]; then
+              patch -p1 < SUSFS_src/kernel.patch || true
+            fi
+          fi
+
+      - name: Build kernel (A13 / 5.15.78 / tapas)
         run: |
           export PATH=$PWD/clang/bin:$PATH
           export ARCH=arm64
           export SUBARCH=arm64
+          export CC=clang
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
           export KBUILD_BUILD_USER=github
           export KBUILD_BUILD_HOST=actions
 
-          make O=out ARCH=arm64 vendor/tapas_defconfig
-          make -j$(nproc --all) O=out ARCH=arm64 \
-            CC=clang CROSS_COMPILE=aarch64-linux-gnu- \
-            CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+          # defconfig cho Redmi Note 12 (tapas). Nếu repo của bạn có tên khác, đổi tại đây.
+          make O=out vendor/tapas_defconfig
+          make -j"$(nproc)" O=out
 
-      - name: Clone AnyKernel3
+      - name: Pack AnyKernel3 (flashable zip)
         run: |
-          git clone https://github.com/osm0sis/AnyKernel3.git -b master AnyKernel
-          cp out/arch/arm64/boot/Image.gz-dtb AnyKernel/
+          set -e
+          git clone https://github.com/osm0sis/AnyKernel3.git AnyKernel
+          # cấu hình cơ bản
+          sed -i 's|^device.name1=.*|device.name1=tapas|' AnyKernel/anykernel.sh || true
+          sed -i 's|^block=.*|block=auto|' AnyKernel/anykernel.sh || true
 
-      - name: Make flashable zip
-        run: |
+          # copy kernel artefacts
+          if [ -f out/arch/arm64/boot/Image.gz-dtb ]; then
+            cp out/arch/arm64/boot/Image.gz-dtb AnyKernel/
+          elif [ -f out/arch/arm64/boot/Image.gz ]; then
+            cp out/arch/arm64/boot/Image.gz AnyKernel/
+          elif [ -f out/arch/arm64/boot/Image ]; then
+            cp out/arch/arm64/boot/Image AnyKernel/
+          fi
+          [ -f out/arch/arm64/boot/dtb.img ]  && cp out/arch/arm64/boot/dtb.img  AnyKernel/ || true
+          [ -f out/arch/arm64/boot/dtbo.img ] && cp out/arch/arm64/boot/dtbo.img AnyKernel/ || true
+
           cd AnyKernel
-          zip -r9 ../RedmiNote12-Kernel-KSUN-SUSFS.zip * -x .git*
+          zip -r9 ../RedmiNote12-A13-5.15.78-KSUN-SUSFS.zip * -x .git* README.md .github* 2>/dev/null || \
+          zip -r9 ../RedmiNote12-A13-5.15.78-KSUN-SUSFS.zip * -x .git*
 
-      - name: Upload Kernel Zip
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: RedmiNote12-Kernel-KSUN-SUSFS
-          path: RedmiNote12-Kernel-KSUN-SUSFS.zip
+          name: RedmiNote12-A13-5.15.78-KSUN-SUSFS
+          path: |
+            RedmiNote12-A13-5.15.78-KSUN-SUSFS.zip
+            out/arch/arm64/boot/Image*
+            out/arch/arm64/boot/dtb*.img
+            out/arch/arm64/boot/dtbo*.img
+          compression-level: 0
