@@ -1,46 +1,53 @@
-name: Build A13-5.15 KSUN+SUSFS (AnyKernel3)
+name: Build Redmi Note 12 A13-5.15.78 (KSUN+SUSFS)
 
 on:
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
+
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
+    - name: Checkout
+      uses: actions/checkout@v4
 
-      - name: Setup deps
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential bc bison flex libssl-dev \
-            libncurses5-dev git wget curl python3 unzip zip ccache
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y bc bison build-essential ccache curl flex git \
+          libncurses5-dev libssl-dev python3 python3-pip unzip zip zlib1g-dev wget
 
-      - name: Build android13-5.15 KSUN+SUSFS
-        env:
-          TARGET: gki-android13-5.15
-          FLAVOR: ksun-susfs
-        run: |
-          chmod +x build.sh || true
-          bash build.sh "$TARGET" "$FLAVOR"
+    - name: Download Proton Clang
+      run: |
+        mkdir clang
+        wget -q https://github.com/kdrag0n/proton-clang/releases/download/20230717/proton-clang-20230717.tar.gz -O clang.tar.gz
+        tar -C clang -xzf clang.tar.gz
 
-      - name: Package AnyKernel3 zip
-        run: |
-          # clone AnyKernel3 template
-          git clone https://github.com/osm0sis/AnyKernel3.git anykernel
-          cd anykernel
-          # chỉnh tên thiết bị nếu muốn
-          sed -i 's|^device.name1=.*|device.name1=tapas|' anykernel.sh || true
-          sed -i 's|^device.name2=.*|device.name2=topaz|' anykernel.sh || true
-          sed -i 's|^block=.*|block=auto|' anykernel.sh || true
-          # copy boot.img vừa build vào AnyKernel3
-          find ../out -type f -name "*.img" -exec cp {} ./boot.img \; -quit
-          # đóng gói zip
-          zip -r9 ../AnyKernel3-android13-5.15-ksun-susfs.zip . -x .git\* .github\* README.md
-          cd ..
+    - name: Set environment
+      run: |
+        echo "PATH=$(pwd)/clang/bin:$PATH" >> $GITHUB_ENV
+        echo "CC=clang" >> $GITHUB_ENV
 
-      - name: Upload AnyKernel3 zip
-        uses: actions/upload-artifact@v4
-        with:
-          name: AnyKernel3-android13-5.15-ksun-susfs
-          path: AnyKernel3-android13-5.15-ksun-susfs.zip
+    - name: Build Kernel
+      run: |
+        export ARCH=arm64
+        export SUBARCH=arm64
+        export PATH=$(pwd)/clang/bin:$PATH
+        export CROSS_COMPILE=$(pwd)/clang/bin/aarch64-linux-gnu-
+        export CROSS_COMPILE_ARM32=$(pwd)/clang/bin/arm-linux-gnueabi-
+        
+        make O=out vendor/tapas_defconfig
+        make O=out -j$(nproc) CC=clang
+
+    - name: Pack AnyKernel3
+      run: |
+        git clone https://github.com/osm0sis/AnyKernel3.git -b master AnyKernel
+        cp out/arch/arm64/boot/Image AnyKernel/
+        cd AnyKernel
+        zip -r9 ../RedmiNote12-KSUN-SUSFS-A13-5.15.78.zip *
+
+    - name: Upload Kernel
+      uses: actions/upload-artifact@v4
+      with:
+        name: RedmiNote12-KSUN-SUSFS-A13-5.15.78
+        path: RedmiNote12-KSUN-SUSFS-A13-5.15.78.zip
