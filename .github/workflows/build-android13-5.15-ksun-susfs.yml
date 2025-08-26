@@ -8,46 +8,46 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-    - name: Checkout
-      uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-    - name: Install dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y bc bison build-essential ccache curl flex git \
-          libncurses5-dev libssl-dev python3 python3-pip unzip zip zlib1g-dev wget
+      - name: Set up environment
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git wget curl build-essential bc bison flex libssl-dev \
+              libncurses5-dev libncursesw5-dev python3 python3-pip ccache zip unzip
 
-    - name: Download Proton Clang
-      run: |
-        mkdir clang
-        wget -q https://github.com/kdrag0n/proton-clang/releases/download/20230717/proton-clang-20230717.tar.gz -O clang.tar.gz
-        tar -C clang -xzf clang.tar.gz
+      - name: Download Proton Clang
+        run: |
+          mkdir clang
+          wget -q https://github.com/kdrag0n/proton-clang/archive/refs/tags/20230717.tar.gz -O clang.tar.gz
+          tar -C clang --strip-components=1 -xzf clang.tar.gz
 
-    - name: Set environment
-      run: |
-        echo "PATH=$(pwd)/clang/bin:$PATH" >> $GITHUB_ENV
-        echo "CC=clang" >> $GITHUB_ENV
+      - name: Build kernel
+        run: |
+          export PATH=$PWD/clang/bin:$PATH
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export KBUILD_BUILD_USER=github
+          export KBUILD_BUILD_HOST=actions
 
-    - name: Build Kernel
-      run: |
-        export ARCH=arm64
-        export SUBARCH=arm64
-        export PATH=$(pwd)/clang/bin:$PATH
-        export CROSS_COMPILE=$(pwd)/clang/bin/aarch64-linux-gnu-
-        export CROSS_COMPILE_ARM32=$(pwd)/clang/bin/arm-linux-gnueabi-
-        
-        make O=out vendor/tapas_defconfig
-        make O=out -j$(nproc) CC=clang
+          make O=out ARCH=arm64 vendor/tapas_defconfig
+          make -j$(nproc --all) O=out ARCH=arm64 \
+            CC=clang CROSS_COMPILE=aarch64-linux-gnu- \
+            CROSS_COMPILE_ARM32=arm-linux-gnueabi-
 
-    - name: Pack AnyKernel3
-      run: |
-        git clone https://github.com/osm0sis/AnyKernel3.git -b master AnyKernel
-        cp out/arch/arm64/boot/Image AnyKernel/
-        cd AnyKernel
-        zip -r9 ../RedmiNote12-KSUN-SUSFS-A13-5.15.78.zip *
+      - name: Clone AnyKernel3
+        run: |
+          git clone https://github.com/osm0sis/AnyKernel3.git -b master AnyKernel
+          cp out/arch/arm64/boot/Image.gz-dtb AnyKernel/
 
-    - name: Upload Kernel
-      uses: actions/upload-artifact@v4
-      with:
-        name: RedmiNote12-KSUN-SUSFS-A13-5.15.78
-        path: RedmiNote12-KSUN-SUSFS-A13-5.15.78.zip
+      - name: Make flashable zip
+        run: |
+          cd AnyKernel
+          zip -r9 ../RedmiNote12-Kernel-KSUN-SUSFS.zip * -x .git*
+
+      - name: Upload Kernel Zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: RedmiNote12-Kernel-KSUN-SUSFS
+          path: RedmiNote12-Kernel-KSUN-SUSFS.zip
