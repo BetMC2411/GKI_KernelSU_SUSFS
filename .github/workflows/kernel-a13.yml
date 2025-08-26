@@ -60,7 +60,7 @@ jobs:
         zip -r9 ../wildkernel-redminote12-5.15.78-ksun-susfs.zip *
 
     - name: Upload zip
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: wildkernel-redminote12-5.15.78-ksun-susfs
         path: wildkernel-redminote12-5.15.78-ksun-susfs.zip
