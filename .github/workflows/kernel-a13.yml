@@ -1,98 +1,66 @@
-name: Build Kernel - A13
-
-permissions:
-  contents: write  # Allow writing to repository contents
-  actions: write   # Allows triggering actions
+name: Build Redmi Note 12 A13-5.15.78 (KSUN+SUSFS)
 
 on:
-  workflow_call:
-    inputs:
-      kernelsu_variant:
-        required: true
-        type: string
-      kernelsu_branch:
-        required: true
-        type: string
-      kernelsu_branch_other:
-        required: false
-        type: string
-        default: ""
+  workflow_dispatch:
 
 jobs:
-  build-kernels-a13-5-10:
-    strategy:
-      fail-fast: true
-      matrix:
-        include:
-          - sub_level: "198"
-            os_patch_level: "2024-01"
-          - sub_level: "205"
-            os_patch_level: "2024-03"
-          - sub_level: "209"
-            os_patch_level: "2024-05"
-          - sub_level: "210"
-            os_patch_level: "2024-06"
-          - sub_level: "214"
-            os_patch_level: "2024-07"
-          - sub_level: "218"
-            os_patch_level: "2024-08"
-          - sub_level: "223"
-            os_patch_level: "2024-11"
-          - sub_level: "228"
-            os_patch_level: "2025-01"
-          - sub_level: "234"
-            os_patch_level: "2025-03"
-          - sub_level: "236"
-            os_patch_level: "2025-05"
-          - sub_level: "X"
-            os_patch_level: "lts"
-    uses: ./.github/workflows/build.yml
-    secrets: inherit
-    with:
-      android_version: "android13"
-      kernel_version: "5.10"
-      sub_level: ${{ matrix.sub_level }}
-      os_patch_level: ${{ matrix.os_patch_level }}
-      kernelsu_variant: ${{ inputs.kernelsu_variant }}
-      kernelsu_branch: ${{ inputs.kernelsu_branch }}
-      kernelsu_branch_other: ${{ inputs.kernelsu_branch_other || '' }}
+  build:
+    runs-on: ubuntu-22.04
 
-  build-kernels-a13-5-15:
-    strategy:
-      fail-fast: true
-      matrix:
-        include:
-          - sub_level: "123"
-            os_patch_level: "2023-11"
-          - sub_level: "137"
-            os_patch_level: "2024-01"
-          - sub_level: "144"
-            os_patch_level: "2024-03"
-          - sub_level: "148"
-            os_patch_level: "2024-05"
-          - sub_level: "149"
-            os_patch_level: "2024-07"
-          - sub_level: "151"
-            os_patch_level: "2024-08"
-          - sub_level: "153"
-            os_patch_level: "2024-09"
-          - sub_level: "167"
-            os_patch_level: "2024-11"
-          - sub_level: "170"
-            os_patch_level: "2025-01"
-          - sub_level: "178"
-            os_patch_level: "2025-03"
-          - sub_level: "180"
-            os_patch_level: "2025-05"
-          - sub_level: "X"
-            os_patch_level: "lts"
-    uses: ./.github/workflows/build.yml
-    secrets: inherit
-    with:
-      android_version: "android13"
-      kernel_version: "5.15"
-      sub_level: ${{ matrix.sub_level }}
-      os_patch_level: ${{ matrix.os_patch_level }}
-      kernelsu_variant: ${{ inputs.kernelsu_variant }}
-      kernelsu_branch: ${{ inputs.kernelsu_branch }}
-      kernelsu_branch_other: ${{ inputs.kernelsu_branch_other || '' }}
+    steps:
+    - name: Checkout kernel source
+      uses: actions/checkout@v3
+
+    - name: Setup deps
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y git wget curl zip unzip bc bison flex \
+          build-essential python3 python3-pip libssl-dev ccache \
+          libncurses5-dev libncursesw5-dev
+
+    - name: Download Clang
+      run: |
+        mkdir clang
+        cd clang
+        wget https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/master/clang-r450784d.tar.gz -O clang.tar.gz
+        tar -xzf clang.tar.gz
+        cd ..
+
+    - name: Clone KernelSU + SUSFS
+      run: |
+        # KernelSU
+        git clone https://github.com/tiann/KernelSU.git -b main KernelSU_src
+        cp -r KernelSU_src/kernel/* ./kernel/
+
+        # SUSFS
+        git clone https://github.com/chenxiaolong/susfs.git SUSFS_src
+        patch -p1 < SUSFS_src/kernel.patch || true
+
+    - name: Build kernel 5.15.78
+      run: |
+        export PATH=$GITHUB_WORKSPACE/clang/bin:$PATH
+        export ARCH=arm64
+        export SUBARCH=arm64
+        export CC=clang
+        mkdir -p out
+
+        # config cho Redmi Note 12 (tapas, Android 13, 5.15.78)
+        make O=out gki_defconfig
+        make O=out vendor/tapas_defconfig
+
+        # build
+        make O=out -j$(nproc)
+
+    - name: AnyKernel3 package
+      run: |
+        git clone https://github.com/WildKernel/AnyKernel3
+        cp out/arch/arm64/boot/Image AnyKernel3/
+        cp out/arch/arm64/boot/dtb* AnyKernel3/ || true
+        cd AnyKernel3
+        zip -r9 ../wildkernel-redminote12-5.15.78-ksun-susfs.zip *
+
+    - name: Upload zip
+      uses: actions/upload-artifact@v3
+      with:
+        name: wildkernel-redminote12-5.15.78-ksun-susfs
+        path: wildkernel-redminote12-5.15.78-ksun-susfs.zip
